@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login Page - Token Refresh & Expiry</title>
+  <style>
+    /* Colorful background with multiple colors */
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(135deg, #ff512f, #dd2476, #1cc88a, #4e73df);
+      background-size: 400% 400%;   /* For smooth animation */
+      animation: gradientBG 10s ease infinite;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+
+    /* Animate gradient for effect */
+    @keyframes gradientBG {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+
+    /* Login box */
+    .login-container {
+      background: rgba(255, 255, 255, 0.9);
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0px 6px 20px rgba(0, 0, 0, 0.2);
+      width: 350px;
+      text-align: center;
+    }
+
+    .login-container h2 {
+      margin-bottom: 20px;
+      color: #333;
+    }
+
+    .login-container input {
+      width: 100%;
+      padding: 12px;
+      margin: 10px 0;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      outline: none;
+      font-size: 14px;
+    }
+
+    .login-container input:focus {
+      border-color: #4e73df;
+      box-shadow: 0 0 5px rgba(78, 115, 223, 0.5);
+    }
+
+    .login-container button {
+      width: 100%;
+      padding: 12px;
+      background: #4e73df;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      cursor: pointer;
+      transition: 0.3s;
+    }
+
+    .login-container button:hover {
+      background: #1cc88a;
+    }
+
+    .token-info {
+      margin-top: 15px;
+      font-size: 13px;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-container">
+    <h2>Login</h2>
+    <form>
+      <input type="text" placeholder="Username" required>
+      <input type="password" placeholder="Password" required>
+      <button type="submit">Login</button>
+    </form>
+    <div class="token-info">
+      <p>Note: Token will expire in <b>15 minutes</b>.<br>
+      Use refresh option to extend session.</p>
+    </div>
+  </div>
+</body>
+</html>

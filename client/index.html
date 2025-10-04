@@ -1,0 +1,311 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Token Refresh & Expiry — Demo</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#7c3aed;--muted:#94a3b8;--glass:rgba(255,255,255,0.03)}
+    body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; background:linear-gradient(180deg,#071026 0%, #071827 100%); color:#e6eef8; padding:28px}
+    .wrap{max-width:980px;margin:0 auto}
+    h1{font-size:22px;margin:0 0 6px}
+    p.lead{color:var(--muted);margin:0 0 18px}
+    .grid{display:grid;grid-template-columns:1fr 360px;gap:20px}
+    .card{background:var(--card);padding:18px;border-radius:12px;box-shadow:0 6px 18px rgba(2,6,23,.6)}
+    pre{background:var(--glass);padding:12px;border-radius:8px;overflow:auto}
+    .controls button{margin-right:8px;margin-bottom:8px}
+    .token{font-family:monospace;background:#071427;padding:10px;border-radius:8px}
+    .meta{font-size:13px;color:var(--muted)}
+    .row{display:flex;gap:12px;align-items:center}
+    .stat{background:rgba(255,255,255,0.02);padding:10px;border-radius:8px;min-width:120px}
+    .log{height:180px;overflow:auto;background:rgba(255,255,255,0.02);padding:12px;border-radius:8px;font-size:13px}
+    .success{color:#7ee787}
+    .danger{color:#ff8a8a}
+    footer{margin-top:18px;color:var(--muted);font-size:13px}
+    .small{font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Token Refresh & Expiry — Interactive HTML Demo</h1>
+    <p class="lead">This single-file demo simulates an authentication server issuing short-lived access tokens and longer-lived refresh tokens. Use the buttons to login, call a protected API, and refresh tokens. Comments in the code explain common patterns used in real systems (JWTs, 401 handling, retry after refresh).</p>
+
+    <div class="grid">
+      <div class="card">
+        <div class="row" style="justify-content:space-between;margin-bottom:14px">
+          <div>
+            <strong>Client Controls</strong>
+            <div class="small">Simulated in-browser client + in-memory "server"</div>
+          </div>
+          <div class="small">Local demo — no network calls</div>
+        </div>
+
+        <div class="controls">
+          <button id="btnLogin">Login (issue tokens)</button>
+          <button id="btnCall">Call Protected API</button>
+          <button id="btnRefresh">Manual Refresh</button>
+          <button id="btnLogout">Logout (clear)</button>
+        </div>
+
+        <hr style="margin:12px 0;border-color:rgba(255,255,255,0.03)" />
+
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div>
+            <div class="meta">Access Token</div>
+            <div id="accessToken" class="token">—</div>
+            <div class="small" id="accessInfo">expires: —</div>
+          </div>
+          <div>
+            <div class="meta">Refresh Token</div>
+            <div id="refreshToken" class="token">—</div>
+            <div class="small" id="refreshInfo">expires: —</div>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:12px;align-items:center">
+          <div class="stat">API calls: <strong id="apiCalls">0</strong></div>
+          <div class="stat">Successful: <strong id="apiSuccess">0</strong></div>
+          <div class="stat">Failed: <strong id="apiFail">0</strong></div>
+        </div>
+
+        <h3 style="margin-top:14px">Activity log</h3>
+        <div id="log" class="log"></div>
+
+      </div>
+
+      <div class="card">
+        <h3>What this demonstrates</h3>
+        <ul class="small">
+          <li>Short-lived access token expiry (eg. 30s) and refresh token expiry (eg. 2 minutes)</li>
+          <li>Handling 401 from API by automatically refreshing the access token using the refresh token, then retrying the request</li>
+          <li>Refresh token rotation (simple simulation) and logout flow</li>
+        </ul>
+
+        <h3 style="margin-top:12px">How to use</h3>
+        <ol class="small">
+          <li>Click <strong>Login</strong> to get tokens.</li>
+          <li>Click <strong>Call Protected API</strong> to simulate calling a resource that requires a valid access token.</li>
+          <li>If access token expired you will see 401 — demo automatically attempts refresh and retries.</li>
+        </ol>
+
+        <h3 style="margin-top:12px">Key code points (explained in comments)</h3>
+        <pre>// issueTokens() -> server issues accessToken + refreshToken
+// apiRequest() -> checks access token expiry and returns 200 or 401
+// handle401AndRetry() -> attempts refresh, then retries original request
+</pre>
+
+        <footer>
+          Tip: copy the code to a file named <code>token_refresh_and_expiry_demo.html</code> and open in your browser. This demo runs fully in the browser (no backend) but follows the same client-side patterns used in real apps.
+        </footer>
+      </div>
+    </div>
+
+    <!-- Implementation script -->
+    <script>
+      // -----------------------------
+      // Simple in-memory "auth server" simulation
+      // -----------------------------
+      // Access tokens expire quickly; refresh tokens last longer.
+
+      const SERVER = (function(){
+        // For demo: 30s access token, 120s refresh token
+        const ACCESS_LIFETIME = 30; // seconds
+        const REFRESH_LIFETIME = 120; // seconds
+
+        // create a token object with value and expiry timestamp
+        function createToken(prefix, lifetimeSec){
+          const now = Date.now();
+          const expiresAt = now + lifetimeSec*1000;
+          // token format is human friendly for demo: prefix-<ms>
+          const val = prefix + '-' + Math.random().toString(36).slice(2,10) + '-' + Math.floor(expiresAt/1000);
+          return { value: val, expiresAt };
+        }
+
+        // Issue initial tokens on login
+        function issueTokens(){
+          return {
+            accessToken: createToken('AT', ACCESS_LIFETIME),
+            refreshToken: createToken('RT', REFRESH_LIFETIME),
+            accessLifetime: ACCESS_LIFETIME,
+            refreshLifetime: REFRESH_LIFETIME
+          };
+        }
+
+        // Refresh tokens: if refresh token still valid, issue new tokens
+        function refresh(refreshToken){
+          const now = Date.now();
+          if(!refreshToken || !refreshToken.expiresAt) return { status:401, message:'invalid refresh token' };
+          if(refreshToken.expiresAt < now) return { status:401, message:'refresh token expired' };
+
+          // In a real server you might rotate refresh tokens here
+          const tokens = issueTokens();
+          // For rotation demo, the new refresh token will be different
+          return { status:200, tokens };
+        }
+
+        // Simulate protected API that requires valid access token
+        function protectedApi(accessToken){
+          const now = Date.now();
+          if(!accessToken || !accessToken.expiresAt) return { status:401, message:'no token' };
+          if(accessToken.expiresAt < now) return { status:401, message:'token expired' };
+          // valid
+          return { status:200, data:{ secret: 'The time is ' + new Date().toLocaleTimeString() } };
+        }
+
+        return { issueTokens, refresh, protectedApi };
+      })();
+
+      // -----------------------------
+      // Client-side logic
+      // -----------------------------
+      const els = {
+        btnLogin: document.getElementById('btnLogin'),
+        btnCall: document.getElementById('btnCall'),
+        btnRefresh: document.getElementById('btnRefresh'),
+        btnLogout: document.getElementById('btnLogout'),
+        accessToken: document.getElementById('accessToken'),
+        refreshToken: document.getElementById('refreshToken'),
+        accessInfo: document.getElementById('accessInfo'),
+        refreshInfo: document.getElementById('refreshInfo'),
+        log: document.getElementById('log'),
+        apiCalls: document.getElementById('apiCalls'),
+        apiSuccess: document.getElementById('apiSuccess'),
+        apiFail: document.getElementById('apiFail')
+      };
+
+      let stats = { calls:0, success:0, fail:0 };
+
+      // store tokens in localStorage so page reload will preserve them (like real SPA)
+      function saveTokens(tokens){
+        localStorage.setItem('demo_tokens', JSON.stringify(tokens));
+        updateUIFromStorage();
+      }
+      function clearTokens(){
+        localStorage.removeItem('demo_tokens');
+        updateUIFromStorage();
+      }
+      function readTokens(){
+        const raw = localStorage.getItem('demo_tokens');
+        return raw ? JSON.parse(raw) : null;
+      }
+
+      function log(msg, cls){
+        const p = document.createElement('div');
+        if(cls) p.className = cls;
+        p.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+        els.log.prepend(p);
+      }
+
+      // show pretty expiry times and countdown
+      function formatExpiry(ts){
+        if(!ts) return '—';
+        const d = new Date(ts);
+        const diff = Math.max(0, Math.floor((ts - Date.now())/1000));
+        return d.toLocaleTimeString() + ' (' + diff + 's left)';
+      }
+
+      function updateUIFromStorage(){
+        const tokens = readTokens();
+        if(!tokens){
+          els.accessToken.textContent = '—';
+          els.refreshToken.textContent = '—';
+          els.accessInfo.textContent = 'expires: —';
+          els.refreshInfo.textContent = 'expires: —';
+          return;
+        }
+        els.accessToken.textContent = tokens.accessToken.value;
+        els.refreshToken.textContent = tokens.refreshToken.value;
+        els.accessInfo.textContent = 'expires: ' + formatExpiry(tokens.accessToken.expiresAt);
+        els.refreshInfo.textContent = 'expires: ' + formatExpiry(tokens.refreshToken.expiresAt);
+      }
+
+      // Login (client calls server to get tokens)
+      function login(){
+        const issued = SERVER.issueTokens();
+        saveTokens(issued);
+        log('Logged in: received access + refresh tokens', 'success');
+      }
+
+      // Manual refresh (user clicks)
+      function manualRefresh(){
+        const tokens = readTokens();
+        if(!tokens){ log('No tokens to refresh', 'danger'); return; }
+        const res = SERVER.refresh(tokens.refreshToken);
+        if(res.status === 200){ saveTokens(res.tokens); log('Refresh success: new tokens issued', 'success'); }
+        else { clearTokens(); log('Refresh failed: refresh token invalid/expired', 'danger'); }
+      }
+
+      // The pattern used by many clients: try request; if 401, try refresh and then retry once
+      async function callProtectedApi(){
+        stats.calls += 1; els.apiCalls.textContent = stats.calls;
+        const tokens = readTokens();
+        log('Calling protected API...', null);
+
+        const res = SERVER.protectedApi(tokens ? tokens.accessToken : null);
+        if(res.status === 200){
+          stats.success += 1; els.apiSuccess.textContent = stats.success;
+          log('API 200: ' + JSON.stringify(res.data), 'success');
+          return res;
+        }
+
+        // got 401 — try to refresh once
+        stats.fail += 1; els.apiFail.textContent = stats.fail;
+        log('API 401 unauthorized. Attempting token refresh...', 'danger');
+
+        const refreshRes = SERVER.refresh(tokens ? tokens.refreshToken : null);
+        if(refreshRes.status !== 200){
+          log('Refresh failed. Forcing logout/reauthentication.', 'danger');
+          clearTokens();
+          return { status:401, message:'reauth required' };
+        }
+
+        // Save new tokens and retry original request
+        saveTokens(refreshRes.tokens);
+        log('Refresh succeeded. Retrying original API call...', 'success');
+
+        const retryRes = SERVER.protectedApi(refreshRes.tokens.accessToken);
+        if(retryRes.status === 200){
+          stats.success += 1; els.apiSuccess.textContent = stats.success;
+          log('Retry success: ' + JSON.stringify(retryRes.data), 'success');
+          return retryRes;
+        }
+
+        stats.fail += 1; els.apiFail.textContent = stats.fail;
+        log('Retry failed unexpectedly.', 'danger');
+        return retryRes;
+      }
+
+      // Logout
+      function logout(){
+        clearTokens(); log('User logged out (tokens cleared)', 'danger');
+      }
+
+      // Attach handlers
+      els.btnLogin.addEventListener('click', login);
+      els.btnRefresh.addEventListener('click', manualRefresh);
+      els.btnCall.addEventListener('click', callProtectedApi);
+      els.btnLogout.addEventListener('click', logout);
+
+      // UI refresh timer: update countdowns every 1s
+      setInterval(updateUIFromStorage, 1000);
+
+      // On load, restore tokens if any
+      updateUIFromStorage();
+
+      // Helpful: auto-call every 15s to show expiry/refresh flow (comment out if undesired)
+      // setInterval(()=>{ callProtectedApi(); }, 15000);
+
+      // -----------------------------
+      // Notes in code (real-world mapping)
+      // -----------------------------
+      // 1) In real systems access tokens are often JWTs (signed) and are short-lived (minutes).
+      // 2) Refresh tokens are long-lived and stored more securely (httpOnly cookies or secure storage).
+      // 3) When an API returns 401 the client must decide whether to attempt refresh.
+      // 4) Refresh calls themselves may return 401 (refresh expired) -> user must reauthenticate.
+      // 5) Refresh token rotation: servers may issue a new refresh token on each refresh and invalidate the old one.
+      // 6) For security, avoid storing refresh tokens in plain localStorage in production. Use httpOnly secure cookies.
+
+    </script>
+  </div>
+</body>
+</html>
